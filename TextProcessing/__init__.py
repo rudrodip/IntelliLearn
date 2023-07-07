@@ -1,0 +1,1 @@
+print('Initialized TextProcessor successfully')

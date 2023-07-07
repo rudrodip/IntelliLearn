@@ -1,0 +1,1 @@
+print("Utility library initialized successfully")
