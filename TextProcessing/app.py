@@ -5,8 +5,10 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationSummaryMemory
 from langchain.tools import WikipediaQueryRun, DuckDuckGoSearchRun
-from langchain.utilities import WikipediaAPIWrapper
+from langchain.utilities import WikipediaAPIWrapper, SerpAPIWrapper, DuckDuckGoSearchAPIWrapper
 from langchain.memory.chat_message_histories import FirestoreChatMessageHistory
+from langchain.agents import initialize_agent, Tool, AgentType, load_tools
+from langchain.chains.llm_math.base import LLMMathChain
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -26,35 +28,50 @@ Human: {input}
 IntelliTutor:"""
 PROMPT = PromptTemplate(input_variables=["history", "input"], template=template)
 
-wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(top_k_results=1))
 
+#  tools
+search = DuckDuckGoSearchAPIWrapper()
+wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=2000))
 
-class Responder:
+tools = [
+    Tool(
+        name = "Current Search",
+        func=search.run,
+        description="useful for when you need to answer questions about current events or the current state of the world"
+    ),
+    Tool(
+        name = "Wikipedia Search",
+        func=wikipedia.run,
+        description="useful for when you need to answer accurate answer for academic questions from wikipedia"
+    ),
+    Tool(
+        name="Calculator",
+        description="Useful for when you need to answer questions about math.",
+        func=LLMMathChain.from_llm(llm=llm).run,
+        coroutine=LLMMathChain.from_llm(llm=llm).arun,
+    )
+]
+
+class CustomAgent:
     def __init__(self):
         self.memory = ConversationSummaryMemory(
-            llm=llm, max_token_limit=20, ai_prefix="IntelliTutor", return_messages=True
+            llm=llm, max_token_limit=20, ai_prefix="IntelliTutor", return_messages=True, memory_key="chat_history"
         )
-        self.conversation = ConversationChain(
-            prompt=PROMPT, llm=llm, verbose=True, memory=self.memory,
-        )
+        message_history = FirestoreChatMessageHistory("users", '2021', '2021')
+        self.memory = ConversationSummaryMemory.from_messages(
+                    llm=llm,
+                    max_token_limit=50,
+                    ai_prefix="IntelliTutor",
+                    chat_memory=message_history,
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+        self.agent_chain = initialize_agent(tools, llm, agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION, verbose=True, memory=self.memory)
 
     def respond(self, prompt, uid):
-        message_history = FirestoreChatMessageHistory("users", uid, uid)
-        # print(message_history)
-        self.memory = ConversationSummaryMemory.from_messages(
-            llm=llm,
-            max_token_limit=20,
-            ai_prefix="IntelliTutor",
-            chat_memory=message_history,
-            return_messages=True
-        )
-        self.conversation = ConversationChain(
-            prompt=PROMPT, llm=llm, verbose=True, memory=self.memory,
-        )
-        response = self.conversation.predict(input=prompt)
+        response = self.agent_chain.run(input=prompt)
         return response
-
-
-def wikipedia_search(topic):
-    response = wikipedia.run(topic)
-    return response
+    
+    def wikipedia_search(self, topic):
+        response = wikipedia.run(topic)
+        return response

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import os
 import random
 from Utils.db import check_registered_user, get_user_data
-from TextProcessing.app import wikipedia_search, Responder
+from TextProcessing.app import CustomAgent
 
 registered_users = set()
 load_dotenv()
@@ -35,7 +35,7 @@ quiz_data = [
     }
 ]
 
-responder = Responder()
+agent = CustomAgent()
 
 @bot.event
 async def on_ready():
@@ -54,8 +54,9 @@ async def on_message(message):
                 await bot.process_commands(message)
             else:
                 # Provide default response when no commands are detected
-                response = responder.respond(prompt=message.content.strip(), uid=str(user_id))
-                await message.channel.send(response)
+                msg = await message.channel.send('processing...')
+                response = agent.respond(prompt=message.content.strip(), uid=str(user_id))
+                await msg.edit(content=response)
         else:
             await message.channel.send(f"You have to register before using commands. Visit `https://intelli-learn.vercel.app` and sign up for an account. Your discord id is `{user_id}`. Provide this id in the form. Good luck 😀")
 
@@ -145,7 +146,7 @@ async def quiz(ctx):
 
 @bot.command()
 async def wiki(ctx, *, topic):
-    res = wikipedia_search(topic=topic)
+    res = agent.wikipedia_search(topic=topic)
     await ctx.send(res)
 
 bot.run(TOKEN)
